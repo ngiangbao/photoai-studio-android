@@ -1,26 +1,31 @@
 name: Android Release
 
+# Triggered by version-bump.yml finishing, not by push: version-bump.yml
+# pushes its bump commit using the default GITHUB_TOKEN, and GitHub never
+# fires a new *push*-triggered workflow run for a commit pushed that way
+# (its built-in loop guard) - so a plain "on: push" here would silently
+# never run after the real trigger (a human pushing to main). workflow_run
+# doesn't have that restriction: it fires on run completion itself.
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - '**.md'
+  workflow_run:
+    workflows: ["Auto-bump app version"]
+    types: [completed]
   workflow_dispatch: {}
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    # Every push first goes through version-bump.yml, which bumps
-    # version.json and re-pushes tagged "[skip version-bump]". Building only
-    # on that follow-up commit (or a manual dispatch) means the APK always
-    # carries the just-bumped version instead of racing version-bump.yml and
-    # shipping a release one version behind.
-    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[skip version-bump]')
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     permissions:
       contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Explicit ref: a workflow_run event's default checkout can lag
+          # behind - we want main as it stands right after version-bump.yml
+          # pushed its bump commit, version.json included.
+          ref: main
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -98,7 +103,6 @@ jobs:
           retention-days: 90
 
       - name: Create GitHub Release
-        if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.appver.outputs.version }}
