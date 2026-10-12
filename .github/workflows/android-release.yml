@@ -38,7 +38,20 @@ jobs:
           gradle-version: "8.9"
 
       - name: Build debug APK
-        run: gradle assembleDebug --no-daemon
+        id: build
+        run: gradle assembleDebug --no-daemon --stacktrace 2>&1 | tee build.log
+        continue-on-error: true
+
+      # The sandbox that authors this repo can't reach Actions' blob-storage log
+      # backend, so on failure we re-surface the actual Gradle error as a workflow
+      # annotation (visible via the Checks/annotations REST API) instead of only
+      # the generic "exit code 1" the job-status API already shows.
+      - name: Report build failure details
+        if: steps.build.outcome == 'failure'
+        run: |
+          MSG=$(tail -n 80 build.log | sed ':a;N;$!ba;s/\n/%0A/g')
+          echo "::error::$MSG"
+          exit 1
 
       - name: Rename APK for release
         run: |
