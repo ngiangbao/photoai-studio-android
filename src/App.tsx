@@ -3,6 +3,7 @@ import { CapturedPhoto, AppSettings, Screen, ToastMessage, AppUpdateInfo, ThemeM
 import { strings } from './localization/strings';
 import { storageService } from './services/storageService';
 import { aiClassifier } from './services/aiClassifier';
+import { api } from './services/api';
 import { HomeScreen } from './components/HomeScreen';
 import { EditorScreen } from './components/EditorScreen';
 import { SettingsScreen } from './components/SettingsScreen';
@@ -68,8 +69,7 @@ export const App: React.FC = () => {
   const checkForUpdates = async (openModalOnFound: boolean = true) => {
     setIsCheckingUpdate(true);
     try {
-      const res = await fetch(`/api/check-update?currentVersion=${encodeURIComponent(settings.appVersion)}`);
-      const data = await res.json();
+      const data = await api.checkUpdate(settings.appVersion);
 
       setUpdateInfo(data);
       if (data.hasUpdate && openModalOnFound) {

@@ -1,4 +1,5 @@
 import { CapturedPhoto, PhotoCategory } from '../types';
+import { api } from './api';
 
 export interface CategorizeResult {
   category: PhotoCategory;
@@ -17,26 +18,17 @@ export const aiClassifier = {
     apiKey?: string,
   ): Promise<CategorizeResult> {
     try {
-      const response = await fetch('/api/gemini/categorize', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          imageBase64: photo.dataUrl,
-          apiKey: apiKey || '',
-          filename: photo.name,
-        }),
+      const data = await api.categorizePhoto({
+        imageBase64: photo.dataUrl,
+        apiKey: apiKey || '',
+        filename: photo.name,
       });
-
-      if (response.ok) {
-        const data = await response.json();
-        if (data.success && data.category) {
-          return {
-            category: data.category as PhotoCategory,
-            tags: data.tags || [],
-            confidence: data.confidence || 0.9,
-            reason: data.reason,
-          };
-        }
+      if (data.category) {
+        return {
+          category: data.category as PhotoCategory,
+          tags: data.tags || [],
+          confidence: data.confidence || 0.9,
+        };
       }
     } catch (err) {
       console.warn('AI categorization network call failed, using heuristic analysis:', err);

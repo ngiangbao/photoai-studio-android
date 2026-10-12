@@ -39,6 +39,8 @@ import {
   FILTER_PRESETS,
 } from '../localization/strings';
 import { imageEngine } from '../services/imageEngine';
+import { api } from '../services/api';
+import { isNative, saveFileNative } from '../services/nativeSave';
 
 interface EditorScreenProps {
   photo: CapturedPhoto;
@@ -138,23 +140,18 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
       // First bake current manual adjustments into clean base64
       const bakedImage = await imageEngine.renderBakedImage(currentImage, adjustments, selectedFilter);
 
-      const response = await fetch('/api/gemini/edit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      let data: { imageDataUrl: string };
+      try {
+        data = await api.editImage({
           imageBase64: bakedImage,
           customPrompt: promptText,
           extraInstruction: extraNote,
           apiKey: settings.geminiApiKey,
           model: settings.geminiModel,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok || !data.success) {
-        const errKey = data.errorCode || 'error_network_call_failed';
-        const localized = strings[errKey] || data.error || strings.error_unknown;
+        });
+      } catch (editErr: any) {
+        const errKey = editErr?.errorCode;
+        const localized = (errKey && strings[errKey]) || editErr?.message || strings.error_unknown;
         onShowToast('error', localized);
         return;
       }
@@ -221,16 +218,21 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
       const stem = photo.name.replace(/\.[^/.]+$/, '');
       const filename = `${stem}_pro_${Date.now().toString().slice(-4)}.jpg`;
 
-      const link = document.createElement('a');
-      link.href = finalBaked;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      if (isNative()) {
+        const savedPath = await saveFileNative(finalBaked, filename);
+        onShowToast('status', `Đã lưu vào ${savedPath}`);
+      } else {
+        const link = document.createElement('a');
+        link.href = finalBaked;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        onShowToast('status', strings.status_photo_saved.replace('{0}', filename));
+      }
 
       onSaveResult(finalBaked, filename);
       setShowExportModal(false);
-      onShowToast('status', strings.status_photo_saved.replace('{0}', filename));
     } catch (e: any) {
       onShowToast('error', strings.error_save_failed.replace('{0}', e?.message));
     }

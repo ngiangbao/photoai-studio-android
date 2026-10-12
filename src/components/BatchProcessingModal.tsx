@@ -24,7 +24,8 @@ import {
   FILTER_PRESETS,
 } from '../localization/strings';
 import { imageEngine } from '../services/imageEngine';
-import { veoService } from '../services/veoService';
+import { api } from '../services/api';
+import { isNative, saveFileNative } from '../services/nativeSave';
 
 interface BatchProcessingModalProps {
   isOpen: boolean;
@@ -101,52 +102,33 @@ export const BatchProcessingModal: React.FC<BatchProcessingModalProps> = ({
           updatedItems[i].resultDataUrl = baked;
           updatedItems[i].status = 'done';
         } else if (actionType === 'style') {
-          // AI Style processing via /api/gemini/edit
+          // AI Style processing
           const styleObj = STYLES_LIST.find((s) => s.key === selectedStyleKey) || STYLES_LIST[0];
-          const response = await fetch('/api/gemini/edit', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              imageBase64: photo.dataUrl,
-              styleKey: selectedStyleKey,
-              customPrompt: styleObj.prompt,
-              extraInstruction: extraNote,
-              apiKey: settings.geminiApiKey,
-              model: settings.geminiModel,
-            }),
+          const { imageDataUrl } = await api.editImage({
+            imageBase64: photo.dataUrl,
+            customPrompt: styleObj.prompt,
+            extraInstruction: extraNote,
+            apiKey: settings.geminiApiKey,
+            model: settings.geminiModel,
           });
-
-          const data = await response.json();
-          if (!response.ok || !data.success) {
-            throw new Error(data.error || 'AI edit failed');
-          }
-          updatedItems[i].resultDataUrl = data.imageDataUrl;
+          updatedItems[i].resultDataUrl = imageDataUrl;
           updatedItems[i].status = 'done';
         } else if (actionType === 'veo_video') {
-          // Veo Video generation from image. The job is async on the server
-          // (1-3 min): kick it off, then actually poll for completion and
-          // download the real video instead of marking the item "done" the
-          // moment the job is merely accepted (which is what used to happen -
-          // the raw operationName was stored and nothing ever played/downloaded).
+          // Veo Video generation from image. The job is async (1-3 min): kick
+          // it off, then actually poll for completion and download the real
+          // video instead of marking the item "done" the moment the job is
+          // merely accepted (which is what used to happen - the raw
+          // operationName was stored and nothing ever played/downloaded).
           setCurrentItemElapsedSec(0);
-          const response = await fetch('/api/veo/generate-video', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              imageBase64: photo.dataUrl,
-              aspectRatio: videoRatio,
-              prompt: extraNote || 'Cinematic camera pan and animated movement',
-              apiKey: settings.geminiApiKey,
-            }),
+          const operationName = await api.generateVeoVideo({
+            imageBase64: photo.dataUrl,
+            aspectRatio: videoRatio,
+            prompt: extraNote || 'Cinematic camera pan and animated movement',
+            apiKey: settings.geminiApiKey,
           });
 
-          const data = await response.json();
-          if (!response.ok || !data.success) {
-            throw new Error(data.error || 'Veo generation failed');
-          }
-
-          const result = await veoService.pollAndDownload({
-            operationName: data.operationName,
+          const result = await api.pollAndDownloadVeoVideo({
+            operationName,
             apiKey: settings.geminiApiKey,
             onTick: (elapsedMs) => setCurrentItemElapsedSec(Math.round(elapsedMs / 1000)),
             isCancelled: () => isCancelledRef.current,
@@ -197,8 +179,19 @@ export const BatchProcessingModal: React.FC<BatchProcessingModalProps> = ({
     onClose();
   };
 
-  const handleDownloadAll = () => {
+  const handleDownloadAll = async () => {
     if (actionType === 'veo_video') {
+      if (isNative()) {
+        for (const item of completedVideoItems) {
+          try {
+            await saveFileNative(item.videoUrl!, `${item.photo.name.replace(/\.[^/.]+$/, '')}_veo.mp4`);
+          } catch (err: any) {
+            console.error('Save video failed:', err);
+          }
+        }
+        onShowToast('status', `Đã lưu ${completedVideoItems.length} video vào Documents/PhotoAI Studio.`);
+        return;
+      }
       completedVideoItems.forEach((item, index) => {
         setTimeout(() => {
           const link = document.createElement('a');
@@ -210,6 +203,18 @@ export const BatchProcessingModal: React.FC<BatchProcessingModalProps> = ({
         }, index * 250);
       });
       onShowToast('status', `Đang tải xuống ${completedVideoItems.length} video…`);
+      return;
+    }
+
+    if (isNative()) {
+      for (const item of completedItems) {
+        try {
+          await saveFileNative(item.resultDataUrl!, `${item.photo.name.replace(/\.[^/.]+$/, '')}_batch.jpg`);
+        } catch (err: any) {
+          console.error('Save image failed:', err);
+        }
+      }
+      onShowToast('status', `Đã lưu ${completedItems.length} ảnh vào Documents/PhotoAI Studio.`);
       return;
     }
 

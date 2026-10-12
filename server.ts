@@ -489,13 +489,15 @@ Output strictly in valid JSON format:
         },
       });
 
-      const opPayload = { name: operationName } as any;
-      const updated = await (ai.operations as any).getVideosOperation({ operation: opPayload });
+      // `ai.operations.getVideosOperation` does not exist on this SDK version
+      // (it is a private internal helper) - the public method is `get`, and
+      // completed videos land under `.result`, not `.response`.
+      const updated = await ai.operations.get({ operation: { name: operationName } });
 
       const isDone = updated.done === true;
       let downloadUri: string | null = null;
       if (isDone) {
-        downloadUri = updated.response?.generatedVideos?.[0]?.video?.uri || null;
+        downloadUri = updated.result?.generatedVideos?.[0]?.video?.uri || null;
       }
 
       res.json({
@@ -522,9 +524,8 @@ Output strictly in valid JSON format:
         },
       });
 
-      const opPayload = { name: operationName } as any;
-      const updated = await (ai.operations as any).getVideosOperation({ operation: opPayload });
-      const uri = updated.response?.generatedVideos?.[0]?.video?.uri;
+      const updated = await ai.operations.get({ operation: { name: operationName } });
+      const uri = updated.result?.generatedVideos?.[0]?.video?.uri;
 
       if (!uri) {
         res.status(404).json({ error: 'Video URI not found or video generation not finished' });

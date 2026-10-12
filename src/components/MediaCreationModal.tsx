@@ -10,7 +10,8 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { AppSettings, CapturedPhoto } from '../types';
-import { veoService } from '../services/veoService';
+import { api } from '../services/api';
+import { isNative, saveFileNative } from '../services/nativeSave';
 
 type VeoPhase = 'idle' | 'generating' | 'processing' | 'ready' | 'error';
 
@@ -92,23 +93,14 @@ export const MediaCreationModal: React.FC<MediaCreationModalProps> = ({
 
     try {
       if (activeMode === 'nano_image') {
-        const response = await fetch('/api/gemini/generate-image', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            prompt: prompt.trim(),
-            aspectRatio: aspectRatio,
-            model: 'gemini-nano-banana-2.1',
-            apiKey: settings.geminiApiKey,
-          }),
+        const imageDataUrl = await api.generateImage({
+          prompt: prompt.trim(),
+          aspectRatio: aspectRatio,
+          model: 'gemini-nano-banana-2.1',
+          apiKey: settings.geminiApiKey,
         });
 
-        const data = await response.json();
-        if (!response.ok || !data.success) {
-          throw new Error(data.error || 'Tạo ảnh thất bại');
-        }
-
-        setGeneratedImage(data.imageDataUrl);
+        setGeneratedImage(imageDataUrl);
         onShowToast('status', 'Tạo ảnh bằng Gemini Nano Banana 2.1 thành công!');
         setIsGenerating(false);
       } else {
@@ -118,27 +110,18 @@ export const MediaCreationModal: React.FC<MediaCreationModalProps> = ({
         veoCancelledRef.current = false;
         setVeoPhase('generating');
 
-        const response = await fetch('/api/veo/generate-video', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            prompt: prompt.trim() || 'Cinematic realistic video with smooth camera motion',
-            imageBase64: uploadedBase64,
-            aspectRatio: videoRatio,
-            apiKey: settings.geminiApiKey,
-          }),
+        const operationName = await api.generateVeoVideo({
+          prompt: prompt.trim() || 'Cinematic realistic video with smooth camera motion',
+          imageBase64: uploadedBase64,
+          aspectRatio: videoRatio,
+          apiKey: settings.geminiApiKey,
         });
-
-        const data = await response.json();
-        if (!response.ok || !data.success) {
-          throw new Error(data.error || 'Khởi tạo video Veo thất bại');
-        }
 
         setVeoPhase('processing');
         setIsGenerating(false);
 
-        const result = await veoService.pollAndDownload({
-          operationName: data.operationName,
+        const result = await api.pollAndDownloadVeoVideo({
+          operationName,
           apiKey: settings.geminiApiKey,
           onTick: (elapsedMs) => setVeoElapsedSec(Math.round(elapsedMs / 1000)),
           isCancelled: () => veoCancelledRef.current,
@@ -160,11 +143,23 @@ export const MediaCreationModal: React.FC<MediaCreationModalProps> = ({
     }
   };
 
-  const handleDownloadVideo = () => {
+  const handleDownloadVideo = async () => {
     if (!videoBlobUrl) return;
+    const filename = `VeoVideo_${Date.now().toString().slice(-6)}.mp4`;
+
+    if (isNative()) {
+      try {
+        const savedPath = await saveFileNative(videoBlobUrl, filename);
+        onShowToast('status', `Đã lưu vào ${savedPath}`);
+      } catch (err: any) {
+        onShowToast('error', err?.message || 'Lưu video thất bại');
+      }
+      return;
+    }
+
     const link = document.createElement('a');
     link.href = videoBlobUrl;
-    link.download = `VeoVideo_${Date.now().toString().slice(-6)}.mp4`;
+    link.download = filename;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);

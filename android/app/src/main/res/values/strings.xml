@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">PhotoAI Studio</string>
+    <string name="title_activity_main">PhotoAI Studio</string>
+    <string name="package_name">com.ngiangbao.photoaistudio</string>
+    <string name="custom_url_scheme">com.ngiangbao.photoaistudio</string>
+</resources>

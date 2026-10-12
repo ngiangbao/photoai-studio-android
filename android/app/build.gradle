@@ -1,0 +1,93 @@
+apply plugin: 'com.android.application'
+
+import groovy.json.JsonSlurper
+
+// Single source of truth for the app version lives in /version.json at the
+// repo root (format "alpha-X.Y.Z") - read it here instead of hardcoding a
+// versionName/versionCode, so the Android build always matches the web
+// build and scripts/bump-version.mjs is the only place that needs editing.
+def versionJsonFile = file('../../version.json')
+def versionInfo = new JsonSlurper().parse(versionJsonFile)
+def versionMatch = (versionInfo.version =~ /alpha-(\d+)\.(\d+)\.(\d+)/)
+versionMatch.find()
+def verMajor = versionMatch.group(1).toInteger()
+def verMinor = versionMatch.group(2).toInteger()
+def verPatch = versionMatch.group(3).toInteger()
+// Monotonically increasing integer Android requires internally; not shown to users.
+def computedVersionCode = verMajor * 1000000 + verMinor * 10000 + verPatch
+
+// Release signing comes from environment variables (set by CI from GitHub
+// Actions secrets - see .github/workflows/android-release.yml), never from
+// a file committed to the repo. When those secrets aren't set (a local
+// build, or before the repo owner has added them), this falls back to
+// Android's own auto-generated debug keystore so the build still produces
+// an installable APK with zero setup - just without a signing identity
+// that is guaranteed stable release to release.
+def androidKeystorePath = System.getenv('ANDROID_KEYSTORE_PATH')
+def hasReleaseSigning = androidKeystorePath && file(androidKeystorePath).exists()
+
+android {
+    namespace = "com.ngiangbao.photoaistudio"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "com.ngiangbao.photoaistudio"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode computedVersionCode
+        versionName versionInfo.version
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    signingConfigs {
+        if (hasReleaseSigning) {
+            release {
+                storeFile file(androidKeystorePath)
+                storePassword System.getenv('ANDROID_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('ANDROID_KEY_ALIAS')
+                keyPassword System.getenv('ANDROID_KEY_PASSWORD')
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            // Falls back to the debug keystore (auto-generated, not secret)
+            // when no release signing secrets are configured.
+            signingConfig hasReleaseSigning ? signingConfigs.release : signingConfigs.debug
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}
