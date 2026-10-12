@@ -1,0 +1,7 @@
+{
+  "name": "PhotoAI Studio",
+  "description": "Chụp ảnh bằng camera và chỉnh sửa ảnh bằng AI (Gemini) với các phong cách chân dung, ngoại cảnh, phong cảnh, đời thường và kỷ yếu.",
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
