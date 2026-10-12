@@ -25,7 +25,9 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # @capacitor/cli@8 requires Node >= 22 (its package.json "engines"
+          # field) - cap sync fails under Node 20 with no clear error here.
+          node-version: '22'
           cache: 'npm'
 
       - name: Install web dependencies
