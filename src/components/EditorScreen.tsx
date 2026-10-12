@@ -66,7 +66,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
   const [history, setHistory] = useState<string[]>([photo.dataUrl]);
   const [historyIndex, setHistoryIndex] = useState<number>(0);
 
-  // Active Tab in Xingtu / Hypic ribbon
+  // Active Tab in Studio ribbon
   const [activeTab, setActiveTab] = useState<EditorTab>('ai_style');
 
   // Styles & AI Selection
@@ -219,7 +219,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
       const finalBaked = await imageEngine.renderBakedImage(currentImage, adjustments, selectedFilter, scale);
 
       const stem = photo.name.replace(/\.[^/.]+$/, '');
-      const filename = `${stem}_xingtu_${Date.now().toString().slice(-4)}.jpg`;
+      const filename = `${stem}_pro_${Date.now().toString().slice(-4)}.jpg`;
 
       const link = document.createElement('a');
       link.href = finalBaked;
@@ -242,7 +242,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
         isLight ? 'bg-slate-50 text-slate-900' : 'bg-slate-950 text-slate-100'
       }`}
     >
-      {/* Top Studio Bar (Xingtu / Hypic Glass Style) */}
+      {/* Top Studio Bar */}
       <header
         className={`sticky top-0 z-30 px-3 py-2.5 border-b backdrop-blur-xl flex items-center justify-between transition-colors ${
           isLight
@@ -294,7 +294,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
             <RotateCw className="w-4 h-4" />
           </button>
 
-          {/* Xingtu Signature: Hold-to-compare peek button */}
+          {/* Hold-to-compare peek button */}
           <button
             type="button"
             onMouseDown={() => setIsHoldingOriginal(true)}
@@ -431,7 +431,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
         </div>
       </div>
 
-      {/* Xingtu / Hypic Bottom Tool Shelf */}
+      {/* Bottom Tool Shelf */}
       <div
         className={`border-t backdrop-blur-2xl transition-colors ${
           isLight
@@ -517,7 +517,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
               <div className="flex items-center justify-between text-xs">
                 <span className="font-bold text-pink-500 flex items-center gap-1">
                   <UserCheck className="w-3.5 h-3.5" />
-                  {strings.tab_portrait} (Xingtu Retouch)
+                  {strings.tab_portrait} (Pro Retouch)
                 </span>
               </div>
 
@@ -808,7 +808,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
           )}
         </div>
 
-        {/* Primary Bottom Navigation Tabs (Xingtu / Hypic Signature Ribbons) */}
+        {/* Primary Bottom Navigation Tabs */}
         <div
           className={`grid grid-cols-6 border-t px-2 py-2 max-w-2xl mx-auto transition-colors ${
             isLight ? 'border-slate-200/80' : 'border-slate-800/80'

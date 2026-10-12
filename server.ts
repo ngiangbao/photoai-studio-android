@@ -11,10 +11,10 @@ const PORT = 3000;
 const HOST = '0.0.0.0';
 
 // Current release details
-let CURRENT_SERVER_VERSION = '1.1.0-xingtu';
+let CURRENT_SERVER_VERSION = '1.2.0-pro';
 let LATEST_AVAILABLE_VERSION = '1.2.0-pro';
 
-// Edit styles matching original ai/EditStyle.kt + Xingtu/Hypic additions
+// Edit styles matching original ai/EditStyle.kt + Pro Studio additions
 const STYLES: Record<string, string> = {
   portrait:
     'Hay chinh sua anh chan dung nay mot cach chuyen nghiep: lam min da tu nhien ' +
@@ -75,7 +75,7 @@ const STYLES: Record<string, string> = {
 
 async function startServer() {
   const app = express();
-  app.use(express.json({ limit: '35mb' }));
+  app.use(express.json({ limit: '45mb' }));
 
   // API Config endpoint
   app.get('/api/config', (_req: Request, res: Response) => {
@@ -99,23 +99,20 @@ async function startServer() {
       latestVersion: LATEST_AVAILABLE_VERSION,
       releaseDate: '2026-10-12',
       releaseNotes: [
-        'Giao diện hoàn toàn mới lấy cảm hứng từ Xingtu & Hypic mượt mà cao cấp.',
-        'Hỗ trợ chế độ Theme Sáng (Hypic Clean) & Theme Tối (Xingtu Dark).',
-        'Bổ sung bộ công cụ Chân dung: Mịn da, Trắng da, Đôi mắt sáng, Thon gọn V-line.',
-        'Bổ sung Công cụ AI: Làm nét HD, Đổi nền AI, Ánh sáng studio, Xóa chi tiết thừa.',
-        'Bộ lọc màu chuyên nghiệp: Film cổ điển, Điện ảnh Teal, Hàn Quốc, Neon Cyber, B&W.',
-        'Hệ thống Điều chỉnh ảnh theo thời gian thực (Độ sáng, Tương phản, Bão hòa, Nhiệt độ màu).',
-        'Bộ điều khiển Hoàn tác (Undo) / Làm lại (Redo) đa tầng.',
-        'Tùy chọn xuất ảnh chuẩn HD hoặc 2K siêu nét.',
+        'Tính năng Xử lý Hàng loạt (Batch Processing): Chọn nhiều ảnh cùng lúc để áp dụng Style AI hoặc Bộ lọc.',
+        'Thanh tiến trình (Progress Indicator) và bảng theo dõi trạng thái từng ảnh khi xử lý hàng loạt.',
+        'Tạo Video AI với Veo: Chuyển ảnh tĩnh thành video động (Animate) hoặc tạo video từ văn bản.',
+        'Hỗ trợ tỷ lệ video 16:9 (ngang) và 9:16 (dọc Reels/TikTok).',
+        'Tạo ảnh nghệ thuật với mô hình gemini-nano-banana-2.1 độ nét cao.',
+        'Giao diện Pro Studio mượt mà với Themes Sáng / Tối.',
+        'Tự động phân loại ảnh thông minh vào các Album (Chân dung, Phong cảnh, Selfie, Sự kiện).',
       ],
       mandatory: false,
-      downloadUrl: '/updates/photoai-studio-latest.tar.gz',
     });
   });
 
   // Trigger simulate bumping version for user testing
   app.post('/api/simulate-bump-version', (_req: Request, res: Response) => {
-    // Generate an automatic next patch/minor version
     const parts = LATEST_AVAILABLE_VERSION.split('-')[0].split('.').map(Number);
     const nextMinor = parts[1] || 2;
     const nextPatch = (parts[2] || 0) + 1;
@@ -231,6 +228,310 @@ async function startServer() {
         errorCode: 'error_network_call_failed',
         error: message,
       });
+    }
+  });
+
+  // AI photo categorization into Albums (Portraits, Landscapes, Selfies, Events, Others)
+  app.post('/api/gemini/categorize', async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { imageBase64, apiKey, filename } = req.body;
+
+      if (!imageBase64) {
+        res.status(400).json({ error: 'imageBase64 is required' });
+        return;
+      }
+
+      const effectiveApiKey = (apiKey && apiKey.trim()) || process.env.GEMINI_API_KEY || '';
+
+      // Extract raw base64 and mime type
+      let cleanBase64 = imageBase64;
+      let mimeType = 'image/jpeg';
+      const match = imageBase64.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+      if (match) {
+        mimeType = match[1];
+        cleanBase64 = match[2];
+      }
+
+      if (effectiveApiKey) {
+        try {
+          const ai = new GoogleGenAI({
+            apiKey: effectiveApiKey,
+            httpOptions: {
+              headers: { 'User-Agent': 'aistudio-build' },
+            },
+          });
+
+          const prompt = `Analyze this photo and classify it into EXACTLY ONE of the following album categories:
+- "portraits": A portrait of a person (single or couple/few people posed, bust/face/body focused, modeling, studio shot, or clear person subject).
+- "landscapes": Outdoor scenery, nature, mountains, lakes, beaches, forest, open skies, sunsets, city skyline, architecture without a prominent close-up human subject.
+- "selfies": A selfie photo of one or more people taken from front-facing camera angle or arm's length, close-up facial view.
+- "events": Group photos, parties, ceremonies, weddings, graduations, festivals, sports, celebrations, crowds.
+- "others": Objects, food, animals, documents, abstract art, or anything else.
+
+Also provide 2 to 4 concise descriptive tags (e.g. ["chân dung", "ngoài trời", "ánh sáng đẹp"]).
+Output strictly in valid JSON format:
+{
+  "category": "portraits" | "landscapes" | "selfies" | "events" | "others",
+  "tags": ["tag1", "tag2"],
+  "confidence": 0.95,
+  "reason": "Brief description"
+}`;
+
+          const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: {
+              parts: [
+                { text: prompt },
+                {
+                  inlineData: {
+                    mimeType,
+                    data: cleanBase64,
+                  },
+                },
+              ],
+            },
+          });
+
+          const text = response.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (text) {
+            const jsonMatch = text.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+              const parsed = JSON.parse(jsonMatch[0]);
+              const allowed = ['portraits', 'landscapes', 'selfies', 'events', 'others'];
+              const category = allowed.includes(parsed.category) ? parsed.category : 'others';
+              res.json({
+                success: true,
+                category,
+                tags: Array.isArray(parsed.tags) ? parsed.tags : [],
+                confidence: parsed.confidence || 0.92,
+                reason: parsed.reason || '',
+                byAi: true,
+              });
+              return;
+            }
+          }
+        } catch (geminiError: any) {
+          console.warn('Gemini categorization failed, falling back to heuristic:', geminiError?.message || geminiError);
+        }
+      }
+
+      // Intelligent heuristic fallback
+      let category = 'portraits';
+      let tags = ['chân dung', 'ảnh đẹp'];
+      const fn = (filename || '').toLowerCase();
+      if (fn.includes('selfie') || fn.includes('front')) {
+        category = 'selfies';
+        tags = ['selfie', 'gần mặt'];
+      } else if (fn.includes('land') || fn.includes('sky') || fn.includes('nature') || fn.includes('phong_canh')) {
+        category = 'landscapes';
+        tags = ['phong cảnh', 'thiên nhiên'];
+      } else if (fn.includes('event') || fn.includes('party') || fn.includes('grad') || fn.includes('ky_yeu')) {
+        category = 'events';
+        tags = ['sự kiện', 'kỷ yếu'];
+      }
+
+      res.json({
+        success: true,
+        category,
+        tags,
+        confidence: 0.85,
+        byAi: false,
+      });
+    } catch (err: any) {
+      console.error('Categorize error:', err);
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  // Create image with gemini-nano-banana-2.1
+  app.post('/api/gemini/generate-image', async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { prompt, aspectRatio, apiKey, model } = req.body;
+      if (!prompt) {
+        res.status(400).json({ error: 'Prompt is required' });
+        return;
+      }
+
+      const effectiveApiKey = (apiKey && apiKey.trim()) || process.env.GEMINI_API_KEY || '';
+      if (!effectiveApiKey) {
+        res.status(401).json({ errorCode: 'error_missing_api_key', error: 'Missing Gemini API key' });
+        return;
+      }
+
+      const selectedModel = (model && model.trim()) || 'gemini-nano-banana-2.1';
+      const ai = new GoogleGenAI({
+        apiKey: effectiveApiKey,
+        httpOptions: {
+          headers: { 'User-Agent': 'aistudio-build' },
+        },
+      });
+
+      const generateParams: any = {
+        model: selectedModel,
+        contents: {
+          parts: [{ text: prompt }],
+        },
+        config: {
+          imageConfig: {
+            aspectRatio: aspectRatio || '1:1',
+            imageSize: '1K',
+          },
+        },
+      };
+      const response = await ai.models.generateContent(generateParams);
+
+      const parts = response.candidates?.[0]?.content?.parts || [];
+      let imgBase64: string | null = null;
+      let mime = 'image/png';
+
+      for (const p of parts) {
+        if (p.inlineData?.data) {
+          imgBase64 = p.inlineData.data;
+          if (p.inlineData.mimeType) mime = p.inlineData.mimeType;
+          break;
+        }
+      }
+
+      if (!imgBase64) {
+        res.status(502).json({ error: 'No image generated' });
+        return;
+      }
+
+      res.json({
+        success: true,
+        imageDataUrl: `data:${mime};base64,${imgBase64}`,
+      });
+    } catch (err: any) {
+      console.error('Error generating image:', err);
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  // Veo Video Generation: Animate image into video or generate from text
+  app.post('/api/veo/generate-video', async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { prompt, imageBase64, aspectRatio, apiKey } = req.body;
+      const effectiveApiKey = (apiKey && apiKey.trim()) || process.env.GEMINI_API_KEY || '';
+      if (!effectiveApiKey) {
+        res.status(401).json({ errorCode: 'error_missing_api_key', error: 'Missing Gemini API key' });
+        return;
+      }
+
+      const ai = new GoogleGenAI({
+        apiKey: effectiveApiKey,
+        httpOptions: {
+          headers: { 'User-Agent': 'aistudio-build' },
+        },
+      });
+
+      const videoRatio = aspectRatio === '9:16' ? '9:16' : '16:9';
+      const modelName = 'veo-3.1-fast-generate-preview';
+
+      let videoPayload: any = {
+        model: modelName,
+        prompt: prompt || 'Animate this photo with cinematic camera movement and lifelike depth',
+        config: {
+          numberOfVideos: 1,
+          resolution: '720p',
+          aspectRatio: videoRatio,
+        },
+      };
+
+      if (imageBase64) {
+        let cleanBase64 = imageBase64;
+        let mime = 'image/jpeg';
+        const match = imageBase64.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+        if (match) {
+          mime = match[1];
+          cleanBase64 = match[2];
+        }
+        videoPayload.image = {
+          imageBytes: cleanBase64,
+          mimeType: mime,
+        };
+      }
+
+      const operation = await ai.models.generateVideos(videoPayload);
+
+      res.json({
+        success: true,
+        operationName: operation.name,
+      });
+    } catch (err: any) {
+      console.error('Error initiating Veo video generation:', err);
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  // Veo Video Status Polling
+  app.post('/api/veo/status', async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { operationName, apiKey } = req.body;
+      if (!operationName) {
+        res.status(400).json({ error: 'operationName is required' });
+        return;
+      }
+
+      const effectiveApiKey = (apiKey && apiKey.trim()) || process.env.GEMINI_API_KEY || '';
+      const ai = new GoogleGenAI({
+        apiKey: effectiveApiKey,
+        httpOptions: {
+          headers: { 'User-Agent': 'aistudio-build' },
+        },
+      });
+
+      const opPayload = { name: operationName } as any;
+      const updated = await (ai.operations as any).getVideosOperation({ operation: opPayload });
+
+      const isDone = updated.done === true;
+      let downloadUri: string | null = null;
+      if (isDone) {
+        downloadUri = updated.response?.generatedVideos?.[0]?.video?.uri || null;
+      }
+
+      res.json({
+        done: isDone,
+        hasDownloadUri: Boolean(downloadUri),
+        downloadUri,
+      });
+    } catch (err: any) {
+      console.error('Error polling Veo status:', err);
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  // Veo Video Download stream
+  app.post('/api/veo/download', async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { operationName, apiKey } = req.body;
+      const effectiveApiKey = (apiKey && apiKey.trim()) || process.env.GEMINI_API_KEY || '';
+
+      const ai = new GoogleGenAI({
+        apiKey: effectiveApiKey,
+        httpOptions: {
+          headers: { 'User-Agent': 'aistudio-build' },
+        },
+      });
+
+      const opPayload = { name: operationName } as any;
+      const updated = await (ai.operations as any).getVideosOperation({ operation: opPayload });
+      const uri = updated.response?.generatedVideos?.[0]?.video?.uri;
+
+      if (!uri) {
+        res.status(404).json({ error: 'Video URI not found or video generation not finished' });
+        return;
+      }
+
+      const videoRes = await fetch(uri, {
+        headers: { 'x-goog-api-key': effectiveApiKey },
+      });
+
+      res.setHeader('Content-Type', 'video/mp4');
+      const arrayBuffer = await videoRes.arrayBuffer();
+      res.send(Buffer.from(arrayBuffer));
+    } catch (err: any) {
+      console.error('Error downloading Veo video:', err);
+      res.status(500).json({ error: err?.message || String(err) });
     }
   });
 

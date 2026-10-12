@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { CapturedPhoto, AppSettings, Screen, ToastMessage, AppUpdateInfo, ThemeMode } from './types';
+import { CapturedPhoto, AppSettings, Screen, ToastMessage, AppUpdateInfo, ThemeMode, PhotoCategory } from './types';
 import { strings } from './localization/strings';
 import { storageService } from './services/storageService';
+import { aiClassifier } from './services/aiClassifier';
 import { HomeScreen } from './components/HomeScreen';
 import { EditorScreen } from './components/EditorScreen';
 import { SettingsScreen } from './components/SettingsScreen';
 import { UpdateModal } from './components/UpdateModal';
+import { BatchProcessingModal } from './components/BatchProcessingModal';
+import { MediaCreationModal } from './components/MediaCreationModal';
 import { AlertCircle, CheckCircle2, X } from 'lucide-react';
 
 export const App: React.FC = () => {
@@ -20,6 +23,13 @@ export const App: React.FC = () => {
   const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null);
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState<boolean>(false);
   const [isCheckingUpdate, setIsCheckingUpdate] = useState<boolean>(false);
+
+  // Batch Processing state
+  const [isBatchModalOpen, setIsBatchModalOpen] = useState<boolean>(false);
+  const [selectedBatchPhotos, setSelectedBatchPhotos] = useState<CapturedPhoto[]>([]);
+
+  // Media Creation modal (Veo Video & Nano Banana 2.1)
+  const [isMediaModalOpen, setIsMediaModalOpen] = useState<boolean>(false);
 
   // Current language dictionary
   const currentLang = settings.language || 'vi';
@@ -100,14 +110,31 @@ export const App: React.FC = () => {
     setToasts((prev) => prev.filter((item) => item.id !== id));
   };
 
-  const handleCaptureNew = (dataUrl: string, name: string) => {
+  const handleCaptureNew = async (dataUrl: string, name: string) => {
     setIsCapturing(true);
-    const newPhoto: CapturedPhoto = {
+    let newPhoto: CapturedPhoto = {
       id: `photo_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       dataUrl,
       name,
       timestamp: Date.now(),
     };
+
+    // Auto-categorize newly captured photo with AI in background
+    aiClassifier
+      .categorizePhoto(newPhoto, settings.geminiApiKey)
+      .then((catResult) => {
+        const classified: CapturedPhoto = {
+          ...newPhoto,
+          category: catResult.category,
+          aiTags: catResult.tags,
+          analyzed: true,
+        };
+        const afterUpdate = storageService.updatePhoto(classified);
+        setPhotos(afterUpdate);
+      })
+      .catch((err) => {
+        console.warn('Background auto-categorize skipped:', err);
+      });
 
     const updatedList = storageService.addPhoto(newPhoto);
     setPhotos(updatedList);
@@ -131,15 +158,52 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleBatchDeletePhotos = (ids: string[]) => {
+    let currentPhotos = storageService.loadPhotos();
+    const updated = currentPhotos.filter((p) => !ids.includes(p.id));
+    storageService.savePhotos(updated);
+    setPhotos(updated);
+    showToast('status', `Đã xóa ${ids.length} ảnh.`);
+  };
+
+  const handlePhotosUpdated = (updatedPhotos: CapturedPhoto[]) => {
+    const saved = storageService.updatePhotos(updatedPhotos);
+    setPhotos(saved);
+  };
+
+  const handleUpdatePhotoCategory = (photoId: string, category: PhotoCategory) => {
+    const photo = photos.find((p) => p.id === photoId);
+    if (photo) {
+      const updated: CapturedPhoto = { ...photo, category };
+      const saved = storageService.updatePhoto(updated);
+      setPhotos(saved);
+    }
+  };
+
   const handleSaveResult = (dataUrl: string, name: string) => {
     const editedPhoto: CapturedPhoto = {
       id: `edited_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       dataUrl,
       name,
       timestamp: Date.now(),
+      category: selectedPhoto?.category || 'portraits',
+      aiTags: selectedPhoto?.aiTags || ['đã chỉnh sửa'],
+      analyzed: true,
     };
     const updated = storageService.addPhoto(editedPhoto);
     setPhotos(updated);
+  };
+
+  const handleBatchSaveToGallery = (newPhotos: CapturedPhoto[]) => {
+    let currentPhotos = storageService.loadPhotos();
+    const updated = [...newPhotos, ...currentPhotos];
+    storageService.savePhotos(updated);
+    setPhotos(updated);
+  };
+
+  const handleOpenBatchModal = (selected: CapturedPhoto[]) => {
+    setSelectedBatchPhotos(selected);
+    setIsBatchModalOpen(true);
   };
 
   const handleSaveSettings = (newSettings: AppSettings) => {
@@ -197,6 +261,7 @@ export const App: React.FC = () => {
           photos={photos}
           onSelectPhoto={handleSelectPhoto}
           onDeletePhoto={handleDeletePhoto}
+          onBatchDeletePhotos={handleBatchDeletePhotos}
           onOpenSettings={() => setCurrentScreen('settings')}
           onCaptureNew={handleCaptureNew}
           isCapturing={isCapturing}
@@ -207,6 +272,10 @@ export const App: React.FC = () => {
           onError={(msg) => showToast('error', msg)}
           updateInfo={updateInfo}
           onOpenUpdateModal={() => setIsUpdateModalOpen(true)}
+          onOpenBatchModal={handleOpenBatchModal}
+          onOpenMediaModal={() => setIsMediaModalOpen(true)}
+          onPhotosUpdated={handlePhotosUpdated}
+          onUpdatePhotoCategory={handleUpdatePhotoCategory}
         />
       )}
 
@@ -243,6 +312,30 @@ export const App: React.FC = () => {
           strings={t}
         />
       )}
+
+      {/* Batch Processing Modal */}
+      <BatchProcessingModal
+        isOpen={isBatchModalOpen}
+        onClose={() => setIsBatchModalOpen(false)}
+        selectedPhotos={selectedBatchPhotos}
+        settings={settings}
+        strings={t}
+        onBatchSaveToGallery={handleBatchSaveToGallery}
+        onShowToast={showToast}
+      />
+
+      {/* Media Creation Modal (Nano Banana 2.1 & Veo Video) */}
+      <MediaCreationModal
+        isOpen={isMediaModalOpen}
+        onClose={() => setIsMediaModalOpen(false)}
+        settings={settings}
+        strings={t}
+        onAddPhoto={(photo) => {
+          const updated = storageService.addPhoto(photo);
+          setPhotos(updated);
+        }}
+        onShowToast={showToast}
+      />
     </div>
   );
 };

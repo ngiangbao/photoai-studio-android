@@ -128,13 +128,13 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   id: 'dark',
                   label: strings.theme_dark,
                   icon: <Moon className="w-4 h-4 text-purple-400" />,
-                  desc: 'Xingtu Dark',
+                  desc: 'Studio Dark',
                 },
                 {
                   id: 'light',
                   label: strings.theme_light,
                   icon: <Sun className="w-4 h-4 text-amber-500" />,
-                  desc: 'Hypic Clean',
+                  desc: 'Clean Light',
                 },
                 {
                   id: 'system',

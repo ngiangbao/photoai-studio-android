@@ -9,6 +9,8 @@ export interface EditStyle {
   icon?: string;
 }
 
+export type PhotoCategory = 'all' | 'portraits' | 'landscapes' | 'selfies' | 'events' | 'others';
+
 export interface CapturedPhoto {
   id: string;
   dataUrl: string;
@@ -16,6 +18,9 @@ export interface CapturedPhoto {
   timestamp: number;
   width?: number;
   height?: number;
+  category?: PhotoCategory;
+  aiTags?: string[];
+  analyzed?: boolean;
 }
 
 export type ThemeMode = 'dark' | 'light' | 'system';
@@ -66,4 +71,16 @@ export interface AppUpdateInfo {
   releaseNotes: string[];
   mandatory: boolean;
   downloadUrl?: string;
+}
+
+// Batch Processing Types
+export type BatchActionType = 'style' | 'filter' | 'veo_video';
+
+export interface BatchProcessItem {
+  id: string;
+  photo: CapturedPhoto;
+  status: 'pending' | 'processing' | 'done' | 'error';
+  resultDataUrl?: string;
+  videoUrl?: string;
+  error?: string;
 }
