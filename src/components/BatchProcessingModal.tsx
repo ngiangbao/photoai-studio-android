@@ -7,12 +7,10 @@ import {
   CheckCircle2,
   AlertCircle,
   X,
-  Play,
   Check,
   RotateCw,
   Film,
   Layers,
-  ArrowRight,
   Save,
 } from 'lucide-react';
 import {
@@ -24,9 +22,9 @@ import {
 import {
   STYLES_LIST,
   FILTER_PRESETS,
-  RETOUCH_PRESETS,
 } from '../localization/strings';
 import { imageEngine } from '../services/imageEngine';
+import { veoService } from '../services/veoService';
 
 interface BatchProcessingModalProps {
   isOpen: boolean;
@@ -62,6 +60,7 @@ export const BatchProcessingModal: React.FC<BatchProcessingModalProps> = ({
   // Processing state
   const [items, setItems] = useState<BatchProcessItem[]>([]);
   const [currentIndex, setCurrentIndex] = useState<number>(0);
+  const [currentItemElapsedSec, setCurrentItemElapsedSec] = useState<number>(0);
   const isCancelledRef = useRef<boolean>(false);
 
   if (!isOpen) return null;
@@ -124,7 +123,12 @@ export const BatchProcessingModal: React.FC<BatchProcessingModalProps> = ({
           updatedItems[i].resultDataUrl = data.imageDataUrl;
           updatedItems[i].status = 'done';
         } else if (actionType === 'veo_video') {
-          // Veo Video generation from image
+          // Veo Video generation from image. The job is async on the server
+          // (1-3 min): kick it off, then actually poll for completion and
+          // download the real video instead of marking the item "done" the
+          // moment the job is merely accepted (which is what used to happen -
+          // the raw operationName was stored and nothing ever played/downloaded).
+          setCurrentItemElapsedSec(0);
           const response = await fetch('/api/veo/generate-video', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -140,8 +144,16 @@ export const BatchProcessingModal: React.FC<BatchProcessingModalProps> = ({
           if (!response.ok || !data.success) {
             throw new Error(data.error || 'Veo generation failed');
           }
+
+          const result = await veoService.pollAndDownload({
+            operationName: data.operationName,
+            apiKey: settings.geminiApiKey,
+            onTick: (elapsedMs) => setCurrentItemElapsedSec(Math.round(elapsedMs / 1000)),
+            isCancelled: () => isCancelledRef.current,
+          });
+
           updatedItems[i].resultDataUrl = photo.dataUrl;
-          updatedItems[i].videoUrl = data.operationName;
+          updatedItems[i].videoUrl = result.blobUrl;
           updatedItems[i].status = 'done';
         }
       } catch (err: any) {
@@ -162,9 +174,13 @@ export const BatchProcessingModal: React.FC<BatchProcessingModalProps> = ({
   };
 
   const completedItems = items.filter((item) => item.status === 'done' && item.resultDataUrl);
+  // Veo video results are real .mp4 blobs, not photos - the gallery only
+  // stores CapturedPhoto (still images), so "save to gallery" only applies
+  // to the style/filter actions. Video items are download-only.
+  const completedVideoItems = items.filter((item) => item.status === 'done' && item.videoUrl);
 
   const handleSaveAllToGallery = () => {
-    if (completedItems.length === 0) return;
+    if (actionType === 'veo_video' || completedItems.length === 0) return;
 
     const newPhotos: CapturedPhoto[] = completedItems.map((item) => ({
       id: `batch_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
@@ -182,6 +198,21 @@ export const BatchProcessingModal: React.FC<BatchProcessingModalProps> = ({
   };
 
   const handleDownloadAll = () => {
+    if (actionType === 'veo_video') {
+      completedVideoItems.forEach((item, index) => {
+        setTimeout(() => {
+          const link = document.createElement('a');
+          link.href = item.videoUrl!;
+          link.download = `${item.photo.name.replace(/\.[^/.]+$/, '')}_veo.mp4`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        }, index * 250);
+      });
+      onShowToast('status', `Đang tải xuống ${completedVideoItems.length} video…`);
+      return;
+    }
+
     completedItems.forEach((item, index) => {
       setTimeout(() => {
         const link = document.createElement('a');
@@ -482,7 +513,10 @@ export const BatchProcessingModal: React.FC<BatchProcessingModalProps> = ({
                       {item.status === 'processing' && (
                         <span className="px-2 py-1 rounded-lg bg-indigo-600 text-white text-[10px] font-bold flex items-center gap-1 animate-pulse">
                           <RotateCw className="w-3 h-3 animate-spin" />
-                          <span>{strings.batch_status_processing}</span>
+                          <span>
+                            {strings.batch_status_processing}
+                            {actionType === 'veo_video' && ` (${currentItemElapsedSec}s)`}
+                          </span>
                         </span>
                       )}
                       {item.status === 'done' && (
@@ -519,23 +553,36 @@ export const BatchProcessingModal: React.FC<BatchProcessingModalProps> = ({
               </div>
 
               {/* Grid of Results */}
-              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-56 overflow-y-auto p-1">
-                {completedItems.map((item) => (
-                  <div
-                    key={item.id}
-                    className="relative aspect-square rounded-xl overflow-hidden border border-emerald-500/40 bg-slate-800"
-                  >
-                    <img
-                      src={item.resultDataUrl}
-                      alt={item.photo.name}
-                      className="w-full h-full object-cover"
-                    />
-                    <div className="absolute top-1 right-1 p-0.5 rounded-full bg-emerald-600 text-white">
-                      <Check className="w-2.5 h-2.5" />
+              {actionType === 'veo_video' ? (
+                <div className="grid grid-cols-2 gap-2 max-h-72 overflow-y-auto p-1">
+                  {completedVideoItems.map((item) => (
+                    <div
+                      key={item.id}
+                      className="relative aspect-video rounded-xl overflow-hidden border border-emerald-500/40 bg-black"
+                    >
+                      <video src={item.videoUrl} controls className="w-full h-full object-cover" />
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-56 overflow-y-auto p-1">
+                  {completedItems.map((item) => (
+                    <div
+                      key={item.id}
+                      className="relative aspect-square rounded-xl overflow-hidden border border-emerald-500/40 bg-slate-800"
+                    >
+                      <img
+                        src={item.resultDataUrl}
+                        alt={item.photo.name}
+                        className="w-full h-full object-cover"
+                      />
+                      <div className="absolute top-1 right-1 p-0.5 rounded-full bg-emerald-600 text-white">
+                        <Check className="w-2.5 h-2.5" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -579,11 +626,12 @@ export const BatchProcessingModal: React.FC<BatchProcessingModalProps> = ({
               <button
                 type="button"
                 onClick={handleDownloadAll}
-                className="flex-1 py-3 px-4 rounded-2xl border border-indigo-500/40 bg-indigo-500/10 text-indigo-500 font-bold text-xs flex items-center justify-center gap-1.5"
+                className={`${actionType === 'veo_video' ? 'w-full' : 'flex-1'} py-3 px-4 rounded-2xl border border-indigo-500/40 bg-indigo-500/10 text-indigo-500 font-bold text-xs flex items-center justify-center gap-1.5`}
               >
                 <Download className="w-4 h-4" />
                 <span>{strings.batch_download_all}</span>
               </button>
+              {actionType !== 'veo_video' && (
               <button
                 type="button"
                 onClick={handleSaveAllToGallery}
@@ -592,6 +640,7 @@ export const BatchProcessingModal: React.FC<BatchProcessingModalProps> = ({
                 <Save className="w-4 h-4" />
                 <span>{strings.batch_save_all}</span>
               </button>
+              )}
             </>
           )}
         </footer>

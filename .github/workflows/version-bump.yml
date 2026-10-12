@@ -1,0 +1,43 @@
+name: Auto-bump app version
+
+# Every push to main is treated as a new release of this app, so the version
+# number (alpha-0.0.x in version.json) is bumped automatically here instead
+# of anyone having to remember to edit it by hand. The bump commit itself is
+# tagged with [skip version-bump] so it doesn't trigger another run.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  bump-version:
+    if: "!contains(github.event.head_commit.message, '[skip version-bump]')"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Bump version
+        run: node scripts/bump-version.mjs
+
+      - name: Commit and push version bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add version.json package.json
+          if git diff --cached --quiet; then
+            echo "No version change to commit."
+            exit 0
+          fi
+          git commit -m "chore: auto-bump app version [skip version-bump]"
+          git push

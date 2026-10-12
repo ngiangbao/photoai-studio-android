@@ -3,6 +3,7 @@ import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { readFileSync } from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -10,9 +11,19 @@ const __dirname = path.dirname(__filename);
 const PORT = 3000;
 const HOST = '0.0.0.0';
 
-// Current release details
-let CURRENT_SERVER_VERSION = '1.2.0-pro';
-let LATEST_AVAILABLE_VERSION = '1.2.0-pro';
+// Current release details - single source of truth is version.json at the repo
+// root (bumped automatically by scripts/bump-version.mjs / the version-bump CI
+// workflow), so this never drifts out of sync with package.json or the client.
+// Read with fs instead of a JSON import so it works under both `tsx` (dev) and
+// the plain Node runtime used in production, regardless of Node's JSON-import-
+// attributes support.
+const versionInfo: { version: string; releaseDate: string } = JSON.parse(
+  readFileSync(path.resolve(__dirname, 'version.json'), 'utf-8'),
+);
+
+let CURRENT_SERVER_VERSION = versionInfo.version;
+let LATEST_AVAILABLE_VERSION = versionInfo.version;
+let LATEST_RELEASE_DATE = versionInfo.releaseDate;
 
 // Edit styles matching original ai/EditStyle.kt + Pro Studio additions
 const STYLES: Record<string, string> = {
@@ -97,26 +108,24 @@ async function startServer() {
       hasUpdate,
       currentVersion: clientVersion,
       latestVersion: LATEST_AVAILABLE_VERSION,
-      releaseDate: '2026-10-12',
+      releaseDate: LATEST_RELEASE_DATE,
       releaseNotes: [
-        'Tính năng Xử lý Hàng loạt (Batch Processing): Chọn nhiều ảnh cùng lúc để áp dụng Style AI hoặc Bộ lọc.',
-        'Thanh tiến trình (Progress Indicator) và bảng theo dõi trạng thái từng ảnh khi xử lý hàng loạt.',
-        'Tạo Video AI với Veo: Chuyển ảnh tĩnh thành video động (Animate) hoặc tạo video từ văn bản.',
-        'Hỗ trợ tỷ lệ video 16:9 (ngang) và 9:16 (dọc Reels/TikTok).',
-        'Tạo ảnh nghệ thuật với mô hình gemini-nano-banana-2.1 độ nét cao.',
-        'Giao diện Pro Studio mượt mà với Themes Sáng / Tối.',
-        'Tự động phân loại ảnh thông minh vào các Album (Chân dung, Phong cảnh, Selfie, Sự kiện).',
+        'Video Veo 3.1 giờ xử lý hoàn chỉnh: tự động theo dõi tiến trình tạo video và tải video thật về để xem/lưu (trước đây chỉ khởi tạo rồi dừng ở đó).',
+        'Áp dụng Veo Video hàng loạt (Batch) cũng được xử lý hoàn chỉnh tương tự, kèm xem trước video và tải xuống.',
+        'Thêm lưu ý "dự án vibe coding" trong mục Cài đặt và README để minh bạch về cách ứng dụng được xây dựng.',
+        'Đồng bộ số phiên bản ứng dụng về một nguồn duy nhất, tự động tăng ở mỗi lần phát hành.',
       ],
       mandatory: false,
     });
   });
 
-  // Trigger simulate bumping version for user testing
+  // Trigger simulate bumping version for user testing (in-memory only, does
+  // not touch version.json - that file is the real release version and is
+  // only bumped by scripts/bump-version.mjs / the version-bump CI workflow).
   app.post('/api/simulate-bump-version', (_req: Request, res: Response) => {
-    const parts = LATEST_AVAILABLE_VERSION.split('-')[0].split('.').map(Number);
-    const nextMinor = parts[1] || 2;
-    const nextPatch = (parts[2] || 0) + 1;
-    LATEST_AVAILABLE_VERSION = `${parts[0]}.${nextMinor}.${nextPatch}-pro`;
+    const match = LATEST_AVAILABLE_VERSION.match(/^alpha-(\d+)\.(\d+)\.(\d+)$/);
+    const [major, minor, patch] = match ? match.slice(1).map(Number) : [0, 0, 0];
+    LATEST_AVAILABLE_VERSION = `alpha-${major}.${minor}.${patch + 1}`;
 
     res.json({
       success: true,

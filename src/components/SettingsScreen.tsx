@@ -116,6 +116,18 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       {/* Main Form */}
       <main className="flex-1 max-w-xl w-full mx-auto p-4">
         <form onSubmit={handleSave} className="space-y-6">
+          {/* VIBE CODING DISCLAIMER */}
+          <div
+            className={`p-3.5 rounded-2xl border flex items-start gap-2.5 text-xs leading-relaxed ${
+              isLight
+                ? 'bg-amber-50 border-amber-200 text-amber-900'
+                : 'bg-amber-500/10 border-amber-500/25 text-amber-200'
+            }`}
+          >
+            <Info className="w-4 h-4 flex-shrink-0 mt-0.5 text-amber-500" />
+            <span>{strings.vibe_coding_notice}</span>
+          </div>
+
           {/* THEME SELECTION SECTION */}
           <div className="space-y-2.5">
             <label className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">

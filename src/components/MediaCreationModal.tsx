@@ -1,17 +1,18 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   Sparkles,
   Video,
   Film,
   Download,
-  Play,
   RotateCw,
   X,
   Upload,
-  Check,
-  ImageIcon,
+  CheckCircle2,
 } from 'lucide-react';
 import { AppSettings, CapturedPhoto } from '../types';
+import { veoService } from '../services/veoService';
+
+type VeoPhase = 'idle' | 'generating' | 'processing' | 'ready' | 'error';
 
 interface MediaCreationModalProps {
   isOpen: boolean;
@@ -40,9 +41,31 @@ export const MediaCreationModal: React.FC<MediaCreationModalProps> = ({
 
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
-  const [generatedVideoUri, setGeneratedVideoUri] = useState<string | null>(null);
+
+  // Veo video generation is async on the server (1-3 minutes): these track the
+  // actual lifecycle (kick off -> poll status -> download result) instead of
+  // just firing the request and leaving the UI stuck on "processing" forever.
+  const [veoPhase, setVeoPhase] = useState<VeoPhase>('idle');
+  const [veoElapsedSec, setVeoElapsedSec] = useState<number>(0);
+  const [videoBlobUrl, setVideoBlobUrl] = useState<string | null>(null);
+  const veoCancelledRef = useRef<boolean>(false);
 
   if (!isOpen) return null;
+
+  const resetVeoState = () => {
+    if (videoBlobUrl) {
+      URL.revokeObjectURL(videoBlobUrl);
+    }
+    setVideoBlobUrl(null);
+    setVeoPhase('idle');
+    setVeoElapsedSec(0);
+  };
+
+  const handleCloseModal = () => {
+    veoCancelledRef.current = true;
+    resetVeoState();
+    onClose();
+  };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -65,7 +88,7 @@ export const MediaCreationModal: React.FC<MediaCreationModalProps> = ({
 
     setIsGenerating(true);
     setGeneratedImage(null);
-    setGeneratedVideoUri(null);
+    resetVeoState();
 
     try {
       if (activeMode === 'nano_image') {
@@ -87,8 +110,14 @@ export const MediaCreationModal: React.FC<MediaCreationModalProps> = ({
 
         setGeneratedImage(data.imageDataUrl);
         onShowToast('status', 'Tạo ảnh bằng Gemini Nano Banana 2.1 thành công!');
+        setIsGenerating(false);
       } else {
-        // Veo Video generation
+        // Veo Video generation: kick off the async job, then actually follow
+        // it through to completion (poll status, download the real video)
+        // instead of just firing the request and leaving the UI hanging.
+        veoCancelledRef.current = false;
+        setVeoPhase('generating');
+
         const response = await fetch('/api/veo/generate-video', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -105,15 +134,40 @@ export const MediaCreationModal: React.FC<MediaCreationModalProps> = ({
           throw new Error(data.error || 'Khởi tạo video Veo thất bại');
         }
 
-        onShowToast('status', 'Đã khởi tạo tác vụ tạo video Veo 3.1.');
-        setGeneratedVideoUri(data.operationName);
+        setVeoPhase('processing');
+        setIsGenerating(false);
+
+        const result = await veoService.pollAndDownload({
+          operationName: data.operationName,
+          apiKey: settings.geminiApiKey,
+          onTick: (elapsedMs) => setVeoElapsedSec(Math.round(elapsedMs / 1000)),
+          isCancelled: () => veoCancelledRef.current,
+        });
+
+        if (veoCancelledRef.current) return;
+
+        setVideoBlobUrl(result.blobUrl);
+        setVeoPhase('ready');
+        onShowToast('status', 'Video Veo 3.1 đã sẵn sàng!');
       }
     } catch (err: any) {
-      console.error('Generation error:', err);
-      onShowToast('error', err?.message || 'Lỗi tạo nội dung');
-    } finally {
+      if (err?.message !== 'cancelled') {
+        console.error('Generation error:', err);
+        onShowToast('error', err?.message || 'Lỗi tạo nội dung');
+        setVeoPhase('error');
+      }
       setIsGenerating(false);
     }
+  };
+
+  const handleDownloadVideo = () => {
+    if (!videoBlobUrl) return;
+    const link = document.createElement('a');
+    link.href = videoBlobUrl;
+    link.download = `VeoVideo_${Date.now().toString().slice(-6)}.mp4`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const handleSaveToGallery = () => {
@@ -150,7 +204,7 @@ export const MediaCreationModal: React.FC<MediaCreationModalProps> = ({
 
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleCloseModal}
             className={`p-2 rounded-xl transition ${
               isLight ? 'hover:bg-slate-100 text-slate-500' : 'hover:bg-slate-800 text-slate-400'
             }`}
@@ -312,11 +366,29 @@ export const MediaCreationModal: React.FC<MediaCreationModalProps> = ({
             </div>
           )}
 
-          {generatedVideoUri && (
-            <div className="p-4 rounded-2xl bg-purple-500/10 border border-purple-500/30 text-xs text-center space-y-1">
-              <Video className="w-6 h-6 text-purple-400 mx-auto" />
-              <p className="font-bold text-purple-300">Tác vụ video Veo 3.1 đang được xử lý</p>
-              <p className="text-[10px] text-slate-400 font-mono truncate">{generatedVideoUri}</p>
+          {(veoPhase === 'generating' || veoPhase === 'processing') && (
+            <div className="p-4 rounded-2xl bg-purple-500/10 border border-purple-500/30 text-xs text-center space-y-2">
+              <RotateCw className="w-6 h-6 text-purple-400 mx-auto animate-spin" />
+              <p className="font-bold text-purple-300">
+                {veoPhase === 'generating'
+                  ? 'Đang khởi tạo video Veo 3.1…'
+                  : 'AI đang tạo video (thường mất 1–3 phút)…'}
+              </p>
+              {veoPhase === 'processing' && (
+                <p className="text-[11px] text-slate-400 font-mono">Đã chờ: {veoElapsedSec}s</p>
+              )}
+            </div>
+          )}
+
+          {veoPhase === 'ready' && videoBlobUrl && (
+            <div className="space-y-2 pt-2">
+              <label className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Video đã sẵn sàng</span>
+              </label>
+              <div className="relative rounded-2xl overflow-hidden border border-purple-500/30 bg-black">
+                <video src={videoBlobUrl} controls className="w-full max-h-72" />
+              </div>
             </div>
           )}
         </div>
@@ -326,7 +398,7 @@ export const MediaCreationModal: React.FC<MediaCreationModalProps> = ({
             <>
               <button
                 type="button"
-                onClick={onClose}
+                onClick={handleCloseModal}
                 className="flex-1 py-3 rounded-xl border border-slate-700 text-xs font-semibold"
               >
                 Đóng
@@ -339,14 +411,32 @@ export const MediaCreationModal: React.FC<MediaCreationModalProps> = ({
                 Lưu vào bộ sưu tập
               </button>
             </>
+          ) : veoPhase === 'ready' ? (
+            <>
+              <button
+                type="button"
+                onClick={resetVeoState}
+                className="flex-1 py-3 rounded-xl border border-slate-700 text-xs font-semibold"
+              >
+                Tạo video khác
+              </button>
+              <button
+                type="button"
+                onClick={handleDownloadVideo}
+                className="flex-1 py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold text-xs flex items-center justify-center gap-1.5"
+              >
+                <Download className="w-4 h-4" />
+                <span>Tải video xuống</span>
+              </button>
+            </>
           ) : (
             <button
               type="button"
               onClick={handleGenerate}
-              disabled={isGenerating}
+              disabled={isGenerating || veoPhase === 'generating' || veoPhase === 'processing'}
               className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-pink-600 via-purple-600 to-indigo-600 hover:from-pink-500 hover:to-indigo-500 text-white font-bold text-xs shadow-lg shadow-purple-600/30 flex items-center justify-center gap-1.5 transition active:scale-98 disabled:opacity-50"
             >
-              {isGenerating ? (
+              {isGenerating || veoPhase === 'generating' || veoPhase === 'processing' ? (
                 <>
                   <RotateCw className="w-4 h-4 animate-spin" />
                   <span>Đang xử lý tạo nội dung…</span>

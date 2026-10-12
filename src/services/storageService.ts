@@ -1,5 +1,11 @@
 import { CapturedPhoto, AppSettings, ThemeMode } from '../types';
 import { INITIAL_SAMPLE_PHOTOS } from './samplePhotos';
+import versionInfo from '../../version.json';
+
+// Single source of truth for the app version: a brand-new install (no saved
+// settings yet) should start on the current server version, so it doesn't
+// show a spurious "update available" banner on first run.
+const DEFAULT_APP_VERSION = versionInfo.version;
 
 const PHOTOS_STORAGE_KEY = 'photoai_captured_photos';
 const SETTINGS_STORAGE_KEY = 'photoai_studio_settings';
@@ -15,7 +21,7 @@ export const storageService = {
           geminiModel: parsed.geminiModel || 'gemini-2.5-flash-image',
           language: parsed.language || 'vi',
           theme: (parsed.theme as ThemeMode) || 'dark',
-          appVersion: parsed.appVersion || '1.2.0-pro',
+          appVersion: parsed.appVersion || DEFAULT_APP_VERSION,
           autoCheckUpdate: parsed.autoCheckUpdate !== undefined ? parsed.autoCheckUpdate : true,
         };
       }
@@ -27,7 +33,7 @@ export const storageService = {
       geminiModel: 'gemini-2.5-flash-image',
       language: 'vi',
       theme: 'dark',
-      appVersion: '1.2.0-pro',
+      appVersion: DEFAULT_APP_VERSION,
       autoCheckUpdate: true,
     };
   },

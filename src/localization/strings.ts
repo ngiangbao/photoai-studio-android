@@ -100,6 +100,8 @@ export const strings = {
 
     // Settings screen
     settings_title: 'Cài đặt hệ thống',
+    vibe_coding_notice:
+      'Đây là dự án "vibe coding" — được xây dựng nhanh với sự hỗ trợ của AI, mang tính thử nghiệm. Ứng dụng có thể còn lỗi hoặc thay đổi nhanh giữa các phiên bản.',
     settings_hint: 'Nhập Gemini API key để sử dụng các thuật toán tạo ảnh & chỉnh sửa thông minh.',
     gemini_api_key_label: 'Gemini API key',
     gemini_model_label: 'Mô hình AI (Model)',
@@ -304,6 +306,8 @@ export const strings = {
 
     // Settings screen
     settings_title: 'Settings',
+    vibe_coding_notice:
+      'This is a "vibe coding" project — built quickly with AI assistance, as an experiment. It may contain bugs or change rapidly between versions.',
     settings_hint: 'Enter a Gemini API key to power cutting-edge AI generation and portrait models.',
     gemini_api_key_label: 'Gemini API key',
     gemini_model_label: 'Gemini Model',
